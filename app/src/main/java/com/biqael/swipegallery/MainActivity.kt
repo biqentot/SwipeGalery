@@ -169,7 +169,7 @@ class MainActivity : Activity() {
         stats()
         if (idx >= ids.size) {
             card.setImageDrawable(null)
-            if (ids.isNotEmpty() || trash.isNotEmpty()) finish()
+            if (ids.isNotEmpty() || trash.isNotEmpty()) showSummary()
             else counter.text = "Tidak ada foto baru"
             return
         }
@@ -191,7 +191,7 @@ class MainActivity : Activity() {
         counter.text = "${minOf(idx + 1, ids.size)} / ${ids.size}   ✕ ${trash.size}   ♥ ${history.count { it > 0 }}"
     }
 
-    private fun finish() {
+    private fun showSummary() {
         val b = AlertDialog.Builder(this).setCancelable(false)
             .setTitle("Selesai")
             .setMessage("Disimpan: ${history.count { it > 0 }}\nDibuang: ${trash.size}")
