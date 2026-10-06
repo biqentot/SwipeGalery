@@ -20,6 +20,7 @@ import android.widget.*
 class MainActivity : Activity() {
     private val ids = ArrayList<Long>()
     private val kept = HashSet<Long>()
+    private val pending = HashSet<Long>()
     private val trash = ArrayList<Uri>()
     private val history = ArrayList<Int>()
     private var idx = 0
@@ -39,8 +40,11 @@ class MainActivity : Activity() {
     override fun onCreate(s: Bundle?) {
         super.onCreate(s)
         buildUi()
-        getSharedPreferences("p", MODE_PRIVATE).getStringSet("kept", emptySet())!!
+        val p = getSharedPreferences("p", MODE_PRIVATE)
+        p.getStringSet("kept", emptySet())!!
             .forEach { it.toLongOrNull()?.let { id -> kept.add(id) } }
+        p.getStringSet("trash", emptySet())!!
+            .forEach { it.toLongOrNull()?.let { id -> pending.add(id) } }
         if (checkSelfPermission(Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED)
             loadPhotos()
         else requestPermissions(arrayOf(Manifest.permission.READ_MEDIA_IMAGES), 1)
@@ -56,8 +60,10 @@ class MainActivity : Activity() {
 
         counter = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 15f; gravity = Gravity.CENTER
+            setOnClickListener { if (trash.isNotEmpty() && !busy) deleteTrash() }
             setOnLongClickListener {
-                kept.clear(); saveKept(); Toast.makeText(context, "Riwayat 'simpan' direset", Toast.LENGTH_SHORT).show()
+                kept.clear(); saveSets()
+                Toast.makeText(context, "Riwayat 'simpan' direset", Toast.LENGTH_SHORT).show()
                 loadPhotos(); true
             }
         }
@@ -136,32 +142,45 @@ class MainActivity : Activity() {
 
     private fun decide(dir: Int) {
         val id = ids[idx]
-        if (dir < 0) trash.add(uriOf(id)) else { kept.add(id); saveKept() }
+        if (dir < 0) { trash.add(uriOf(id)); pending.add(id) } else kept.add(id)
+        saveSets()
         history.add(dir); idx++
         resetCard(); busy = false
         show()
+        if (trash.size >= 20 && idx < ids.size) deleteTrash()
     }
 
     private fun undo() {
         if (busy || history.isEmpty()) return
         val dir = history.removeAt(history.lastIndex); idx--
         val id = ids[idx]
-        if (dir < 0) trash.remove(uriOf(id)) else { kept.remove(id); saveKept() }
+        if (dir < 0) { trash.remove(uriOf(id)); pending.remove(id) } else kept.remove(id)
+        saveSets()
         show()
     }
 
-    private fun saveKept() {
+    private fun saveSets() {
         getSharedPreferences("p", MODE_PRIVATE).edit()
-            .putStringSet("kept", kept.map { it.toString() }.toSet()).apply()
+            .putStringSet("kept", kept.map { it.toString() }.toSet())
+            .putStringSet("trash", pending.map { it.toString() }.toSet()).apply()
     }
 
     private fun loadPhotos() {
         ids.clear(); trash.clear(); history.clear(); idx = 0
+        val exist = HashSet<Long>()
         contentResolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             arrayOf(MediaStore.Images.Media._ID), null, null,
             MediaStore.Images.Media.DATE_ADDED + " DESC"
-        )?.use { c -> while (c.moveToNext()) { val id = c.getLong(0); if (id !in kept) ids.add(id) } }
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val id = c.getLong(0)
+                if (id in kept) continue
+                if (id in pending) { trash.add(uriOf(id)); exist.add(id) } else ids.add(id)
+            }
+        }
+        pending.retainAll(exist)
+        saveSets()
         show()
     }
 
@@ -202,6 +221,7 @@ class MainActivity : Activity() {
     }
 
     private fun deleteTrash() {
+        if (trash.isEmpty()) return
         val pi = MediaStore.createDeleteRequest(contentResolver, trash)
         startIntentSenderForResult(pi.intentSender, 42, null, 0, 0, 0)
     }
